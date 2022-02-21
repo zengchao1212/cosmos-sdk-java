@@ -142,14 +142,12 @@ public class CosmosRestApiClient {
         return latestBlock.getBlock().getHeader().getHeight();
     }
 
-    public TxOuterClass.Tx getTxRequest(CosmosCredentials payerCredentials, List<SendInfo> sendList, BigDecimal feeInAtom, long gasLimit) throws Exception {
+    public TxOuterClass.Tx getTxRequest(String payerAddress, List<SendInfo> sendList, BigDecimal feeInAtom, long gasLimit) throws Exception {
         Map<String, Auth.BaseAccount> baseAccountCache = new HashMap<>();
         TxOuterClass.TxBody.Builder txBodyBuilder = TxOuterClass.TxBody.newBuilder();
         TxOuterClass.AuthInfo.Builder authInfoBuilder = TxOuterClass.AuthInfo.newBuilder();
 
         TxOuterClass.Tx.Builder txBuilder = TxOuterClass.Tx.newBuilder();
-        Map<String, Boolean> signerInfoExistMap = new HashMap<>();
-        Map<String, Boolean> signaturesExistMap = new HashMap<>();
         for (SendInfo sendInfo : sendList) {
             BigInteger sendAmountInMicroAtom = ATOMUnitUtil.atomToMicroAtomBigInteger(sendInfo.getAmountInAtom());
             CoinOuterClass.Coin sendCoin = CoinOuterClass.Coin.newBuilder()
@@ -158,37 +156,23 @@ public class CosmosRestApiClient {
                     .build();
 
             Tx.MsgSend message = Tx.MsgSend.newBuilder()
-                    .setFromAddress(sendInfo.getCredentials().getAddress())
+                    .setFromAddress(payerAddress)
                     .setToAddress(sendInfo.getToAddress())
                     .addAmount(sendCoin)
                     .build();
 
             txBodyBuilder.addMessages(Any.pack(message, "/"));
-
-            if (!signerInfoExistMap.containsKey(sendInfo.getCredentials().getAddress())) {
-                authInfoBuilder.addSignerInfos(getSignInfo(sendInfo.getCredentials(), baseAccountCache));
-                signerInfoExistMap.put(sendInfo.getCredentials().getAddress(), true);
-            }
-
         }
-
-        if (!signerInfoExistMap.containsKey(payerCredentials.getAddress())) {
-            authInfoBuilder.addSignerInfos(getSignInfo(payerCredentials, baseAccountCache));
-            signerInfoExistMap.put(payerCredentials.getAddress(), true);
-        }
+        authInfoBuilder.addSignerInfos(getSignInfo(CosmosCredentials.create(new byte[64])));
 
         CoinOuterClass.Coin feeCoin = CoinOuterClass.Coin.newBuilder()
                 .setAmount(ATOMUnitUtil.atomToMicroAtom(feeInAtom).toPlainString())
                 .setDenom(this.token)
                 .build();
 
-        String payerAddress = payerCredentials.getAddress();
-        if (sendList.get(0).getCredentials().getAddress().equals(payerCredentials.getAddress())) {
-            payerAddress = "";
-        }
         TxOuterClass.Fee fee = TxOuterClass.Fee.newBuilder()
                 .setGasLimit(gasLimit)
-                .setPayer(payerAddress)
+                .setPayer("")
                 .addAmount(feeCoin)
                 .build();
 
@@ -198,16 +182,7 @@ public class CosmosRestApiClient {
 
         TxOuterClass.AuthInfo authInfo = authInfoBuilder.build();
 
-        for (SendInfo sendInfo : sendList) {
-            if (!signaturesExistMap.containsKey(sendInfo.getCredentials().getAddress())) {
-                txBuilder.addSignatures(getSignBytes(sendInfo.getCredentials(), txBody, authInfo, baseAccountCache));
-                signaturesExistMap.put(sendInfo.getCredentials().getAddress(), true);
-            }
-        }
-        if (!signaturesExistMap.containsKey(payerCredentials.getAddress())) {
-            txBuilder.addSignatures(getSignBytes(payerCredentials, txBody, authInfo, baseAccountCache));
-            signaturesExistMap.put(payerCredentials.getAddress(), true);
-        }
+        txBuilder.addSignatures(ByteString.copyFrom(new byte[64]));
 
         txBuilder.setBody(txBody);
         txBuilder.setAuthInfo(authInfo);
@@ -218,19 +193,19 @@ public class CosmosRestApiClient {
     /**
      * 发送交易
      *
-     * @param payerCredentials 支付手续费的账户
+     * @param payerAddress 支付账户
      * @param sendList         转账列表
      * @param feeInAtom        手续费总额
      * @param gasLimit         gas最大可用量（gas用完时，矿工会退出执行，且扣除手续费）
      * @return 交易哈希
      * @throws Exception API 错误
      */
-    public Abci.TxResponse sendMultiTx(CosmosCredentials payerCredentials, List<SendInfo> sendList, BigDecimal feeInAtom, long gasLimit) throws Exception {
+    public Abci.TxResponse sendMultiTx(String payerAddress, List<SendInfo> sendList, BigDecimal feeInAtom, long gasLimit) throws Exception {
         if (sendList == null || sendList.size() == 0) {
             throw new Exception("sendList is empty");
         }
 
-        TxOuterClass.Tx tx = getTxRequest(payerCredentials, sendList, feeInAtom, gasLimit);
+        TxOuterClass.Tx tx = getTxRequest(payerAddress, sendList, feeInAtom, gasLimit);
 
         ServiceOuterClass.BroadcastTxRequest broadcastTxRequest = ServiceOuterClass.BroadcastTxRequest.newBuilder()
                 .setTxBytes(tx.toByteString())
@@ -252,7 +227,7 @@ public class CosmosRestApiClient {
         return txResponse;
     }
 
-    public TxOuterClass.SignerInfo getSignInfo(CosmosCredentials credentials, Map<String, Auth.BaseAccount> baseAccountCache) throws Exception {
+    public TxOuterClass.SignerInfo getSignInfo(CosmosCredentials credentials) throws Exception {
         byte[] encodedPubKey = credentials.getEcKey().getPubKeyPoint().getEncoded(true);
         Keys.PubKey pubKey = Keys.PubKey.newBuilder()
                 .setKey(ByteString.copyFrom(encodedPubKey))
@@ -261,7 +236,7 @@ public class CosmosRestApiClient {
                 .setMode(Signing.SignMode.SIGN_MODE_DIRECT)
                 .build();
 
-        Auth.BaseAccount baseAccount = queryBaseAccount(credentials.getAddress(), baseAccountCache);
+        Auth.BaseAccount baseAccount = queryBaseAccount(credentials.getAddress());
         TxOuterClass.SignerInfo signerInfo = TxOuterClass.SignerInfo.newBuilder()
                 .setPublicKey(Any.pack(pubKey, "/"))
                 .setModeInfo(TxOuterClass.ModeInfo.newBuilder().setSingle(single))

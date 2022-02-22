@@ -2,6 +2,7 @@ package com.jeongen.cosmos;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.util.JsonFormat;
 import com.jeongen.cosmos.crypro.CosmosCredentials;
 import com.jeongen.cosmos.util.ATOMUnitUtil;
@@ -23,20 +24,13 @@ import org.apache.commons.collections4.MultiValuedMap;
 import org.apache.commons.collections4.multimap.ArrayListValuedHashMap;
 import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.Sha256Hash;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.web3j.crypto.ECKeyPair;
 import org.web3j.crypto.Sign;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 public class CosmosRestApiClient {
-
-    private static final Logger logger = LoggerFactory.getLogger(CosmosRestApiClient.class);
 
     private static final JsonFormat.Printer printer = JsonToProtoObjectUtil.getPrinter();
 
@@ -62,7 +56,7 @@ public class CosmosRestApiClient {
         this.chainId = chainId;
     }
 
-    public BigDecimal getBalanceInAtom(String address) throws Exception {
+    public BigDecimal getBalanceInAtom(String address) {
         String path = String.format("/cosmos/bank/v1beta1/balances/%s/%s", address, this.token);
         QueryOuterClass.QueryBalanceResponse balanceResponse = client.get(path, QueryOuterClass.QueryBalanceResponse.class);
         if (balanceResponse.hasBalance()) {
@@ -73,184 +67,162 @@ public class CosmosRestApiClient {
         }
     }
 
-    public ServiceOuterClass.GetTxResponse getTx(String hash) throws Exception {
+    public ServiceOuterClass.GetTxResponse getTx(String hash) {
         String path = String.format("/cosmos/tx/v1beta1/txs/%s", hash);
         return client.get(path, ServiceOuterClass.GetTxResponse.class);
     }
 
-    public Query.GetLatestBlockResponse getLatestBlock() throws Exception {
+    public Query.GetLatestBlockResponse getLatestBlock() {
         String path = "/cosmos/base/tendermint/v1beta1/blocks/latest";
         return client.get(path, Query.GetLatestBlockResponse.class);
     }
 
-    public Query.GetBlockByHeightResponse getBlockByHeight(Long height) throws Exception {
+    public Query.GetBlockByHeightResponse getBlockByHeight(Long height) {
         String path = String.format("/cosmos/base/tendermint/v1beta1/blocks/%d", height);
         return client.get(path, Query.GetBlockByHeightResponse.class);
     }
 
-    public ServiceOuterClass.GetTxsEventResponse getTxsEventByHeight(Long height, String nextKey) throws Exception {
+    public ServiceOuterClass.GetTxsEventResponse getTxsEventByHeight(Long height, String nextKey) {
         MultiValuedMap<String, String> queryMap = new ArrayListValuedHashMap<>();
         queryMap.put("events", "tx.height=" + height);
         queryMap.put("events", "message.action='send'");
         queryMap.put("pagination.key", nextKey);
-        ServiceOuterClass.GetTxsEventResponse eventResponse = client.get("/cosmos/tx/v1beta1/txs", queryMap, ServiceOuterClass.GetTxsEventResponse.class);
-        return eventResponse;
+        return client.get("/cosmos/tx/v1beta1/txs", queryMap, ServiceOuterClass.GetTxsEventResponse.class);
     }
 
-    public QueryAccountResponse queryAccount(String address) throws Exception {
+    public QueryAccountResponse queryAccount(String address) {
         String path = String.format("/cosmos/auth/v1beta1/accounts/%s", address);
         return client.get(path, QueryAccountResponse.class);
     }
 
-    public Auth.BaseAccount queryBaseAccount(String address, Map<String, Auth.BaseAccount> cacheMap) throws Exception {
-        if (cacheMap.containsKey(address)) {
-            return cacheMap.get(address);
+    public ServiceOuterClass.SimulateResponse simulate(ServiceOuterClass.SimulateRequest req) {
+        String reqBody;
+        try {
+            reqBody = printer.print(req);
+        } catch (InvalidProtocolBufferException e) {
+            throw new RuntimeException(e);
         }
-        Auth.BaseAccount baseAccount = queryBaseAccount(address);
-        cacheMap.put(address, baseAccount);
-        return baseAccount;
+        return client.post("/cosmos/tx/v1beta1/simulate", reqBody, ServiceOuterClass.SimulateResponse.class);
     }
 
-    public ServiceOuterClass.SimulateResponse simulate(ServiceOuterClass.SimulateRequest req) throws Exception {
-        String reqBody = printer.print(req);
-        ServiceOuterClass.SimulateResponse simulateResponse = client.post("/cosmos/tx/v1beta1/simulate", reqBody, ServiceOuterClass.SimulateResponse.class);
-        return simulateResponse;
-    }
-
-    public ServiceOuterClass.SimulateResponse simulate(TxOuterClass.Tx tx) throws Exception {
+    public ServiceOuterClass.SimulateResponse simulate(TxOuterClass.Tx tx) {
         ServiceOuterClass.SimulateRequest req = ServiceOuterClass.SimulateRequest.newBuilder()
                 .setTx(tx)
                 .build();
         return simulate(req);
     }
 
-    public Auth.BaseAccount queryBaseAccount(String address) throws Exception {
+    public Auth.BaseAccount queryBaseAccount(String address) {
         QueryAccountResponse res = queryAccount(address);
         if (res.hasAccount() && res.getAccount().is(Auth.BaseAccount.class)) {
-            return res.getAccount().unpack(Auth.BaseAccount.class);
+            try {
+                return res.getAccount().unpack(Auth.BaseAccount.class);
+            } catch (InvalidProtocolBufferException e) {
+                throw new RuntimeException(e);
+            }
         }
         throw new RuntimeException("account not found:" + address);
     }
 
-    public ServiceOuterClass.BroadcastTxResponse broadcastTx(ServiceOuterClass.BroadcastTxRequest req) throws Exception {
-        String reqBody = printer.print(req);
-        ServiceOuterClass.BroadcastTxResponse broadcastTxResponse = client.post("/cosmos/tx/v1beta1/txs", reqBody, ServiceOuterClass.BroadcastTxResponse.class);
-        return broadcastTxResponse;
+    public ServiceOuterClass.BroadcastTxResponse broadcastTx(ServiceOuterClass.BroadcastTxRequest req) {
+        String reqBody;
+        try {
+            reqBody = printer.print(req);
+        } catch (InvalidProtocolBufferException e) {
+            throw new RuntimeException(e);
+        }
+        return client.post("/cosmos/tx/v1beta1/txs", reqBody, ServiceOuterClass.BroadcastTxResponse.class);
     }
 
-    public long getLatestHeight() throws Exception {
+    public long getLatestHeight() {
         Query.GetLatestBlockResponse latestBlock = getLatestBlock();
         return latestBlock.getBlock().getHeader().getHeight();
     }
 
-    public TxOuterClass.Tx getTxRequest(String payerAddress, List<SendInfo> sendList, BigDecimal feeInAtom, long gasLimit) throws Exception {
-        Map<String, Auth.BaseAccount> baseAccountCache = new HashMap<>();
+    public TxOuterClass.Tx getTxRequest(String payerAddress, SendInfo sendInfo, Long seq, String memo) {
         TxOuterClass.TxBody.Builder txBodyBuilder = TxOuterClass.TxBody.newBuilder();
         TxOuterClass.AuthInfo.Builder authInfoBuilder = TxOuterClass.AuthInfo.newBuilder();
 
         TxOuterClass.Tx.Builder txBuilder = TxOuterClass.Tx.newBuilder();
-        Map<String, Boolean> signerInfoExistMap = new HashMap<>();
-        Map<String, Boolean> signaturesExistMap = new HashMap<>();
-        for (SendInfo sendInfo : sendList) {
-            BigInteger sendAmountInMicroAtom = ATOMUnitUtil.atomToMicroAtomBigInteger(sendInfo.getAmountInAtom());
-            CoinOuterClass.Coin sendCoin = CoinOuterClass.Coin.newBuilder()
-                    .setAmount(sendAmountInMicroAtom.toString())
-                    .setDenom(this.token)
-                    .build();
 
-            Tx.MsgSend message = Tx.MsgSend.newBuilder()
-                    .setFromAddress(payerAddress)
-                    .setToAddress(sendInfo.getToAddress())
-                    .addAmount(sendCoin)
-                    .build();
+        BigInteger sendAmountInMicroAtom = ATOMUnitUtil.atomToMicroAtomBigInteger(sendInfo.getAmountInAtom());
+        CoinOuterClass.Coin sendCoin = CoinOuterClass.Coin.newBuilder()
+                .setAmount(sendAmountInMicroAtom.toString())
+                .setDenom(this.token)
+                .build();
 
-            txBodyBuilder.addMessages(Any.pack(message, "/"));
+        Tx.MsgSend message = Tx.MsgSend.newBuilder()
+                .setFromAddress(payerAddress)
+                .setToAddress(sendInfo.getToAddress())
+                .addAmount(sendCoin)
+                .build();
+        txBodyBuilder.addMessages(Any.pack(message, "/"));
 
-            if (!signerInfoExistMap.containsKey(payerAddress)) {
-                authInfoBuilder.addSignerInfos(getSignInfo(payerAddress, baseAccountCache));
-                signerInfoExistMap.put(payerAddress, true);
-            }
-
-        }
-
-        if (!signerInfoExistMap.containsKey(payerAddress)) {
-            authInfoBuilder.addSignerInfos(getSignInfo(payerAddress, baseAccountCache));
-            signerInfoExistMap.put(payerAddress, true);
-        }
+        authInfoBuilder.addSignerInfos(getSignInfo(payerAddress, seq));
 
         CoinOuterClass.Coin feeCoin = CoinOuterClass.Coin.newBuilder()
-                .setAmount(ATOMUnitUtil.atomToMicroAtom(feeInAtom).toPlainString())
+                .setAmount(ATOMUnitUtil.atomToMicroAtom(new BigDecimal("0.000001")).toPlainString())
                 .setDenom(this.token)
                 .build();
 
         TxOuterClass.Fee fee = TxOuterClass.Fee.newBuilder()
-                .setGasLimit(gasLimit)
+                .setGasLimit(80000)
                 .setPayer("")
                 .addAmount(feeCoin)
                 .build();
 
         authInfoBuilder.setFee(fee);
-
+        if (memo != null && !memo.isEmpty()) {
+            txBodyBuilder.setMemo(memo);
+        }
         TxOuterClass.TxBody txBody = txBodyBuilder.build();
 
         TxOuterClass.AuthInfo authInfo = authInfoBuilder.build();
-
-        for (SendInfo sendInfo : sendList) {
-            if (!signaturesExistMap.containsKey(payerAddress)) {
-                txBuilder.addSignatures(ByteString.copyFrom(new byte[64]));
-                signaturesExistMap.put(payerAddress, true);
-            }
-        }
-        if (!signaturesExistMap.containsKey(payerAddress)) {
-            txBuilder.addSignatures(ByteString.copyFrom(new byte[64]));
-            signaturesExistMap.put(payerAddress, true);
-        }
+        txBuilder.addSignatures(ByteString.copyFrom(new byte[64]));
 
         txBuilder.setBody(txBody);
         txBuilder.setAuthInfo(authInfo);
-        TxOuterClass.Tx tx = txBuilder.build();
-        return tx;
+        return txBuilder.build();
     }
 
-    /**
-     * 发送交易
-     *
-     * @param payerAddress 支付手续费的账户
-     * @param sendList         转账列表
-     * @param feeInAtom        手续费总额
-     * @param gasLimit         gas最大可用量（gas用完时，矿工会退出执行，且扣除手续费）
-     * @return 交易哈希
-     * @throws Exception API 错误
-     */
-    public Abci.TxResponse sendMultiTx(String payerAddress, List<SendInfo> sendList, BigDecimal feeInAtom, long gasLimit) throws Exception {
-        if (sendList == null || sendList.size() == 0) {
-            throw new Exception("sendList is empty");
+    public TxOuterClass.Tx send(String payerAddress, SendInfo sendInfo, Long seq, String memo) {
+
+        TxOuterClass.Tx tx = getTxRequest(payerAddress, sendInfo, seq, memo);
+        Abci.GasInfo gasInfo = simulate(tx).getGasInfo();
+        TxOuterClass.Fee fee = tx.getAuthInfo().getFee().toBuilder().setGasLimit(gasInfo.getGasUsed() + 20000).build();
+        TxOuterClass.AuthInfo authInfo = tx.getAuthInfo().toBuilder().setFee(fee).build();
+        return tx.toBuilder().setAuthInfo(authInfo).build();
+    }
+
+    public TxOuterClass.Tx sign(TxOuterClass.Tx tx, byte[] ecKey) {
+        CosmosCredentials credentials = CosmosCredentials.create(ecKey);
+        TxOuterClass.AuthInfo authInfo = tx.getAuthInfo().toBuilder().setSignerInfos(0, getSignInfo(credentials)).build();
+        return tx.toBuilder().setAuthInfo(authInfo).setSignatures(0, getSignBytes(credentials, tx.getBody(), authInfo)).build();
+    }
+
+
+    public String broad(TxOuterClass.Tx tx) throws Exception {
+        ServiceOuterClass.BroadcastTxRequest broadcastTxRequest = ServiceOuterClass.BroadcastTxRequest.newBuilder()
+                .setTxBytes(tx.toByteString())
+                .setMode(ServiceOuterClass.BroadcastMode.BROADCAST_MODE_SYNC)
+                .build();
+
+        ServiceOuterClass.BroadcastTxResponse broadcastTxResponse = broadcastTx(broadcastTxRequest);
+
+        if (!broadcastTxResponse.hasTxResponse()) {
+            throw new Exception("broadcastTxResponse no body\n" + printer.print(tx));
         }
-
-        TxOuterClass.Tx tx = getTxRequest(payerAddress, sendList, feeInAtom, gasLimit);
-        Abci.GasInfo gasInfo=simulate(tx).getGasInfo();
-//        ServiceOuterClass.BroadcastTxRequest broadcastTxRequest = ServiceOuterClass.BroadcastTxRequest.newBuilder()
-//                .setTxBytes(tx.toByteString())
-//                .setMode(ServiceOuterClass.BroadcastMode.BROADCAST_MODE_SYNC)
-//                .build();
-//
-//        ServiceOuterClass.BroadcastTxResponse broadcastTxResponse = broadcastTx(broadcastTxRequest);
-//
-//        if (!broadcastTxResponse.hasTxResponse()) {
-//            throw new Exception("broadcastTxResponse no body\n" + printer.print(tx));
-//        }
-//        Abci.TxResponse txResponse = broadcastTxResponse.getTxResponse();
-//        if (txResponse.getCode() != 0 || !StringUtil.isNullOrEmpty(txResponse.getCodespace())) {
-//            throw new Exception("BroadcastTx error:" + txResponse.getCodespace() + "," + txResponse.getCode() + "," + txResponse.getRawLog() + "\n" + printer.print(tx));
-//        }
-//        if (txResponse.getTxhash().length() != 64) {
-//            throw new Exception("Txhash illegal\n" + printer.print(tx));
-//        }
-//        return txResponse;
-        return null;
+        Abci.TxResponse txResponse = broadcastTxResponse.getTxResponse();
+        if (txResponse.getCode() != 0 || !StringUtil.isNullOrEmpty(txResponse.getCodespace())) {
+            throw new Exception("BroadcastTx error:" + txResponse.getCodespace() + "," + txResponse.getCode() + "," + txResponse.getRawLog() + "\n" + printer.print(tx));
+        }
+        if (txResponse.getTxhash().length() != 64) {
+            throw new Exception("Txhash illegal\n" + printer.print(tx));
+        }
+        return txResponse.getTxhash();
     }
 
-    public TxOuterClass.SignerInfo getSignInfo(CosmosCredentials credentials, Map<String, Auth.BaseAccount> baseAccountCache) throws Exception {
+    public TxOuterClass.SignerInfo getSignInfo(CosmosCredentials credentials) {
         byte[] encodedPubKey = credentials.getEcKey().getPubKeyPoint().getEncoded(true);
         Keys.PubKey pubKey = Keys.PubKey.newBuilder()
                 .setKey(ByteString.copyFrom(encodedPubKey))
@@ -259,16 +231,15 @@ public class CosmosRestApiClient {
                 .setMode(Signing.SignMode.SIGN_MODE_DIRECT)
                 .build();
 
-        Auth.BaseAccount baseAccount = queryBaseAccount(credentials.getAddress(), baseAccountCache);
-        TxOuterClass.SignerInfo signerInfo = TxOuterClass.SignerInfo.newBuilder()
+        Auth.BaseAccount baseAccount = queryBaseAccount(credentials.getAddress());
+        return TxOuterClass.SignerInfo.newBuilder()
                 .setPublicKey(Any.pack(pubKey, "/"))
                 .setModeInfo(TxOuterClass.ModeInfo.newBuilder().setSingle(single))
                 .setSequence(baseAccount.getSequence())
                 .build();
-        return signerInfo;
     }
 
-    public TxOuterClass.SignerInfo getSignInfo(String payerAddress, Map<String, Auth.BaseAccount> baseAccountCache) throws Exception {
+    public TxOuterClass.SignerInfo getSignInfo(String payerAddress, Long seq) {
         byte[] encodedPubKey = ECKey.fromPrivate(BigInteger.valueOf(999999)).getPubKeyPoint().getEncoded(true);
         Keys.PubKey pubKey = Keys.PubKey.newBuilder()
                 .setKey(ByteString.copyFrom(encodedPubKey))
@@ -277,17 +248,16 @@ public class CosmosRestApiClient {
                 .setMode(Signing.SignMode.SIGN_MODE_DIRECT)
                 .build();
 
-        Auth.BaseAccount baseAccount = queryBaseAccount(payerAddress, baseAccountCache);
-        TxOuterClass.SignerInfo signerInfo = TxOuterClass.SignerInfo.newBuilder()
+        Auth.BaseAccount baseAccount = queryBaseAccount(payerAddress);
+        return TxOuterClass.SignerInfo.newBuilder()
                 .setPublicKey(Any.pack(pubKey, "/"))
                 .setModeInfo(TxOuterClass.ModeInfo.newBuilder().setSingle(single))
-                .setSequence(baseAccount.getSequence())
+                .setSequence(seq == null ? baseAccount.getSequence() : seq)
                 .build();
-        return signerInfo;
     }
 
-    public ByteString getSignBytes(CosmosCredentials credentials, TxOuterClass.TxBody txBody, TxOuterClass.AuthInfo authInfo, Map<String, Auth.BaseAccount> baseAccountCache) throws Exception {
-        Auth.BaseAccount baseAccount = queryBaseAccount(credentials.getAddress(), baseAccountCache);
+    public ByteString getSignBytes(CosmosCredentials credentials, TxOuterClass.TxBody txBody, TxOuterClass.AuthInfo authInfo) {
+        Auth.BaseAccount baseAccount = queryBaseAccount(credentials.getAddress());
         byte[] sigBytes = signDoc(credentials.getEcKey().getPrivKeyBytes(), baseAccount, txBody, authInfo, this.chainId);
         return ByteString.copyFrom(sigBytes);
     }

@@ -24,20 +24,20 @@ public class GaiaHttpClient {
     }
 
 
-    public <T extends GeneratedMessageV3> T get(String path, Class<T> resClass) throws Exception {
+    public <T extends GeneratedMessageV3> T get(String path, Class<T> resClass) {
         return invoke(path, "GET", null, null, resClass);
     }
 
-    public <T extends GeneratedMessageV3> T post(String path, String body, Class<T> resClass) throws Exception {
+    public <T extends GeneratedMessageV3> T post(String path, String body, Class<T> resClass) {
         return invoke(path, "POST", body, null, resClass);
     }
 
-    public <T extends GeneratedMessageV3> T get(String path, MultiValuedMap<String, String> queryMap, Class<T> resClass) throws Exception {
+    public <T extends GeneratedMessageV3> T get(String path, MultiValuedMap<String, String> queryMap, Class<T> resClass) {
         return invoke(path, "GET", null, queryMap, resClass);
     }
 
 
-    public <T extends GeneratedMessageV3> T invoke(String path, String method, String body, MultiValuedMap<String, String> queryMap, Class<T> resClass) throws Exception {
+    public <T extends GeneratedMessageV3> T invoke(String path, String method, String body, MultiValuedMap<String, String> queryMap, Class<T> resClass) {
         OkHttpClient httpClient = new OkHttpClient().newBuilder()
                 .readTimeout(Duration.of(10, ChronoUnit.SECONDS))
                 .build();
@@ -67,17 +67,21 @@ public class GaiaHttpClient {
             Message.Builder builder = temp1.toBuilder();
             Request request = requestBuilder.build();
             Response response = httpClient.newCall(request).execute();
-            assert response.body() != null;
-            if (response.code() >= 400) {
-                String msg = String.format("ATOM-HTTP code %s, res:%s", response.code(), response.body().string());
-                throw new Exception(msg);
+            if (response.code() != 200) {
+                if (response.body() == null) {
+                    String msg = String.format("ATOM-HTTP code %s", response.code());
+                    throw new RuntimeException(msg);
+                } else {
+                    throw new RuntimeException(response.body().string());
+                }
+
             }
             parser.merge(response.body().string(), builder);
             return (T) builder.build();
         } catch (Exception e) {
             // 未知异常
             logger.error("ATOM-API Exception  {} {}", e, method, url);
-            throw new Exception(e);
+            throw new RuntimeException(e);
         }
 
     }

@@ -21,7 +21,9 @@ import cosmos.tx.v1beta1.TxOuterClass;
 import io.netty.util.internal.StringUtil;
 import org.apache.commons.collections4.MultiValuedMap;
 import org.apache.commons.collections4.multimap.ArrayListValuedHashMap;
+import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.Sha256Hash;
+import org.bouncycastle.util.encoders.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.web3j.crypto.ECKeyPair;
@@ -163,7 +165,7 @@ public class CosmosRestApiClient {
 
             txBodyBuilder.addMessages(Any.pack(message, "/"));
         }
-        authInfoBuilder.addSignerInfos(getSignInfo(CosmosCredentials.create(new byte[64])));
+        authInfoBuilder.addSignerInfos(getSignInfo(payerAddress));
 
         CoinOuterClass.Coin feeCoin = CoinOuterClass.Coin.newBuilder()
                 .setAmount(ATOMUnitUtil.atomToMicroAtom(feeInAtom).toPlainString())
@@ -185,7 +187,7 @@ public class CosmosRestApiClient {
         txBuilder.addSignatures(ByteString.copyFrom(new byte[64]));
 
         txBuilder.setBody(txBody);
-        txBuilder.setAuthInfo(authInfo);
+//        txBuilder.setAuthInfo(authInfo);
         TxOuterClass.Tx tx = txBuilder.build();
         return tx;
     }
@@ -195,36 +197,18 @@ public class CosmosRestApiClient {
      *
      * @param payerAddress 支付账户
      * @param sendList         转账列表
-     * @param feeInAtom        手续费总额
-     * @param gasLimit         gas最大可用量（gas用完时，矿工会退出执行，且扣除手续费）
      * @return 交易哈希
      * @throws Exception API 错误
      */
-    public Abci.TxResponse sendMultiTx(String payerAddress, List<SendInfo> sendList, BigDecimal feeInAtom, long gasLimit) throws Exception {
+    public TxOuterClass.Tx sendMultiTx(String payerAddress, List<SendInfo> sendList) throws Exception {
         if (sendList == null || sendList.size() == 0) {
             throw new Exception("sendList is empty");
         }
 
-        TxOuterClass.Tx tx = getTxRequest(payerAddress, sendList, feeInAtom, gasLimit);
-
-        ServiceOuterClass.BroadcastTxRequest broadcastTxRequest = ServiceOuterClass.BroadcastTxRequest.newBuilder()
-                .setTxBytes(tx.toByteString())
-                .setMode(ServiceOuterClass.BroadcastMode.BROADCAST_MODE_SYNC)
-                .build();
-
-        ServiceOuterClass.BroadcastTxResponse broadcastTxResponse = broadcastTx(broadcastTxRequest);
-
-        if (!broadcastTxResponse.hasTxResponse()) {
-            throw new Exception("broadcastTxResponse no body\n" + printer.print(tx));
-        }
-        Abci.TxResponse txResponse = broadcastTxResponse.getTxResponse();
-        if (txResponse.getCode() != 0 || !StringUtil.isNullOrEmpty(txResponse.getCodespace())) {
-            throw new Exception("BroadcastTx error:" + txResponse.getCodespace() + "," + txResponse.getCode() + "," + txResponse.getRawLog() + "\n" + printer.print(tx));
-        }
-        if (txResponse.getTxhash().length() != 64) {
-            throw new Exception("Txhash illegal\n" + printer.print(tx));
-        }
-        return txResponse;
+        TxOuterClass.Tx tx = getTxRequest(payerAddress, sendList, BigDecimal.ONE, 1);
+        Abci.GasInfo gasInfo=simulate(tx).getGasInfo();
+//        tx.toBuilder().m;
+        return null;
     }
 
     public TxOuterClass.SignerInfo getSignInfo(CosmosCredentials credentials) throws Exception {
@@ -237,6 +221,24 @@ public class CosmosRestApiClient {
                 .build();
 
         Auth.BaseAccount baseAccount = queryBaseAccount(credentials.getAddress());
+        TxOuterClass.SignerInfo signerInfo = TxOuterClass.SignerInfo.newBuilder()
+                .setPublicKey(Any.pack(pubKey, "/"))
+                .setModeInfo(TxOuterClass.ModeInfo.newBuilder().setSingle(single))
+                .setSequence(baseAccount.getSequence())
+                .build();
+        return signerInfo;
+    }
+
+    public TxOuterClass.SignerInfo getSignInfo(String address) throws Exception {
+        byte[] encodedPubKey = ECKey.fromPrivate(Hex.decode("2d3f950aec4ab81da54bde1e2ac6309deccbc6443bfc0a91da15dc12c3eb96dd")).getPubKeyPoint().getEncoded(true);
+        Keys.PubKey pubKey = Keys.PubKey.newBuilder()
+                .setKey(ByteString.copyFrom(encodedPubKey))
+                .build();
+        TxOuterClass.ModeInfo.Single single = TxOuterClass.ModeInfo.Single.newBuilder()
+                .setMode(Signing.SignMode.SIGN_MODE_DIRECT)
+                .build();
+
+        Auth.BaseAccount baseAccount = queryBaseAccount(address);
         TxOuterClass.SignerInfo signerInfo = TxOuterClass.SignerInfo.newBuilder()
                 .setPublicKey(Any.pack(pubKey, "/"))
                 .setModeInfo(TxOuterClass.ModeInfo.newBuilder().setSingle(single))

@@ -196,7 +196,8 @@ public class CosmosRestApiClient {
 
     public TxOuterClass.Tx sign(TxOuterClass.Tx tx, byte[] ecKey) {
         CosmosCredentials credentials = CosmosCredentials.create(ecKey);
-        TxOuterClass.AuthInfo authInfo = tx.getAuthInfo().toBuilder().setSignerInfos(0, getSignInfo(credentials)).build();
+        long seq = tx.getAuthInfo().getSignerInfos(0).getSequence();
+        TxOuterClass.AuthInfo authInfo = tx.getAuthInfo().toBuilder().setSignerInfos(0, getSignInfo(credentials.getAddress(), seq)).build();
         return tx.toBuilder().setAuthInfo(authInfo).setSignatures(0, getSignBytes(credentials, tx.getBody(), authInfo)).build();
     }
 
@@ -220,23 +221,6 @@ public class CosmosRestApiClient {
             throw new RuntimeException("Txhash illegal");
         }
         return txResponse.getTxhash();
-    }
-
-    public TxOuterClass.SignerInfo getSignInfo(CosmosCredentials credentials) {
-        byte[] encodedPubKey = credentials.getEcKey().getPubKeyPoint().getEncoded(true);
-        Keys.PubKey pubKey = Keys.PubKey.newBuilder()
-                .setKey(ByteString.copyFrom(encodedPubKey))
-                .build();
-        TxOuterClass.ModeInfo.Single single = TxOuterClass.ModeInfo.Single.newBuilder()
-                .setMode(Signing.SignMode.SIGN_MODE_DIRECT)
-                .build();
-
-        Auth.BaseAccount baseAccount = queryBaseAccount(credentials.getAddress());
-        return TxOuterClass.SignerInfo.newBuilder()
-                .setPublicKey(Any.pack(pubKey, "/"))
-                .setModeInfo(TxOuterClass.ModeInfo.newBuilder().setSingle(single))
-                .setSequence(baseAccount.getSequence())
-                .build();
     }
 
     public TxOuterClass.SignerInfo getSignInfo(String payerAddress, Long seq) {

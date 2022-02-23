@@ -201,7 +201,7 @@ public class CosmosRestApiClient {
     }
 
 
-    public String broad(TxOuterClass.Tx tx) throws Exception {
+    public String broad(TxOuterClass.Tx tx) {
         ServiceOuterClass.BroadcastTxRequest broadcastTxRequest = ServiceOuterClass.BroadcastTxRequest.newBuilder()
                 .setTxBytes(tx.toByteString())
                 .setMode(ServiceOuterClass.BroadcastMode.BROADCAST_MODE_SYNC)
@@ -210,14 +210,14 @@ public class CosmosRestApiClient {
         ServiceOuterClass.BroadcastTxResponse broadcastTxResponse = broadcastTx(broadcastTxRequest);
 
         if (!broadcastTxResponse.hasTxResponse()) {
-            throw new Exception("broadcastTxResponse no body\n" + printer.print(tx));
+            throw new RuntimeException("broadcastTxResponse no body");
         }
         Abci.TxResponse txResponse = broadcastTxResponse.getTxResponse();
         if (txResponse.getCode() != 0 || !StringUtil.isNullOrEmpty(txResponse.getCodespace())) {
-            throw new Exception("BroadcastTx error:" + txResponse.getCodespace() + "," + txResponse.getCode() + "," + txResponse.getRawLog() + "\n" + printer.print(tx));
+            throw new RuntimeException("BroadcastTx error:" + txResponse.getCodespace() + "," + txResponse.getCode() + "," + txResponse.getRawLog());
         }
         if (txResponse.getTxhash().length() != 64) {
-            throw new Exception("Txhash illegal\n" + printer.print(tx));
+            throw new RuntimeException("Txhash illegal");
         }
         return txResponse.getTxhash();
     }

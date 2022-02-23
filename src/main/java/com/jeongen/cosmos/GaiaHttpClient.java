@@ -80,7 +80,7 @@ public class GaiaHttpClient {
             return (T) builder.build();
         } catch (Exception e) {
             // 未知异常
-            logger.error("ATOM-API Exception  {} {}", e, method, url);
+            logger.error("ATOM-API Exception", e);
             throw new RuntimeException(e);
         }
 

@@ -139,7 +139,7 @@ public class CosmosRestApiClient {
         return latestBlock.getBlock().getHeader().getHeight();
     }
 
-    public TxOuterClass.Tx getTxRequest(String payerAddress, SendInfo sendInfo, Long seq, String memo) {
+    public TxOuterClass.Tx getTxRequest(String payerAddress, SendInfo sendInfo, BigDecimal feeAmount, Long seq, String memo) {
         TxOuterClass.TxBody.Builder txBodyBuilder = TxOuterClass.TxBody.newBuilder();
         TxOuterClass.AuthInfo.Builder authInfoBuilder = TxOuterClass.AuthInfo.newBuilder();
 
@@ -161,7 +161,7 @@ public class CosmosRestApiClient {
         authInfoBuilder.addSignerInfos(getSignInfo(payerAddress, seq));
 
         CoinOuterClass.Coin feeCoin = CoinOuterClass.Coin.newBuilder()
-                .setAmount(ATOMUnitUtil.atomToMicroAtom(new BigDecimal("0.000001")).toPlainString())
+                .setAmount(ATOMUnitUtil.atomToMicroAtom(feeAmount).toPlainString())
                 .setDenom(this.token)
                 .build();
 
@@ -185,9 +185,9 @@ public class CosmosRestApiClient {
         return txBuilder.build();
     }
 
-    public TxOuterClass.Tx send(String payerAddress, SendInfo sendInfo, Long seq, String memo) {
+    public TxOuterClass.Tx send(String payerAddress, SendInfo sendInfo, BigDecimal feeAmount, Long seq, String memo) {
 
-        TxOuterClass.Tx tx = getTxRequest(payerAddress, sendInfo, seq, memo);
+        TxOuterClass.Tx tx = getTxRequest(payerAddress, sendInfo, feeAmount, seq, memo);
         Abci.GasInfo gasInfo = simulate(tx).getGasInfo();
         TxOuterClass.Fee fee = tx.getAuthInfo().getFee().toBuilder().setGasLimit(gasInfo.getGasUsed() + 20000).build();
         TxOuterClass.AuthInfo authInfo = tx.getAuthInfo().toBuilder().setFee(fee).build();
@@ -197,7 +197,7 @@ public class CosmosRestApiClient {
     public TxOuterClass.Tx sign(TxOuterClass.Tx tx, byte[] ecKey) {
         CosmosCredentials credentials = CosmosCredentials.create(ecKey);
         long seq = tx.getAuthInfo().getSignerInfos(0).getSequence();
-        TxOuterClass.AuthInfo authInfo = tx.getAuthInfo().toBuilder().setSignerInfos(0, getSignInfo(credentials.getAddress(), seq)).build();
+        TxOuterClass.AuthInfo authInfo = tx.getAuthInfo().toBuilder().setSignerInfos(0, getSignInfo(credentials, seq)).build();
         return tx.toBuilder().setAuthInfo(authInfo).setSignatures(0, getSignBytes(credentials, tx.getBody(), authInfo)).build();
     }
 
@@ -221,6 +221,22 @@ public class CosmosRestApiClient {
             throw new RuntimeException("Txhash illegal");
         }
         return txResponse.getTxhash();
+    }
+
+    public TxOuterClass.SignerInfo getSignInfo(CosmosCredentials credentials, Long seq) {
+        byte[] encodedPubKey = credentials.getEcKey().getPubKeyPoint().getEncoded(true);
+        Keys.PubKey pubKey = Keys.PubKey.newBuilder()
+                .setKey(ByteString.copyFrom(encodedPubKey))
+                .build();
+        TxOuterClass.ModeInfo.Single single = TxOuterClass.ModeInfo.Single.newBuilder()
+                .setMode(Signing.SignMode.SIGN_MODE_DIRECT)
+                .build();
+
+        return TxOuterClass.SignerInfo.newBuilder()
+                .setPublicKey(Any.pack(pubKey, "/"))
+                .setModeInfo(TxOuterClass.ModeInfo.newBuilder().setSingle(single))
+                .setSequence(seq)
+                .build();
     }
 
     public TxOuterClass.SignerInfo getSignInfo(String payerAddress, Long seq) {
